@@ -110,6 +110,8 @@ public class SAMLConfigParser extends AbstractParser {
 
     public static final String SSL_CLIENT_AUTHENTICATION = "SSLClientAuthentication";
 
+    public static final String SIGNING_ALIAS = "SigningAlias";
+
     public Object parse(XMLEventReader xmlEventReader) throws ParsingException {
         StartElement startElement = StaxParserUtil.peekNextStartElement(xmlEventReader);
 
@@ -384,6 +386,8 @@ public class SAMLConfigParser extends AbstractParser {
                 populateKeyValueType(auth, startElement);
 
                 keyProviderType.add(auth);
+            } else if (startElementName.equals(SIGNING_ALIAS)) {
+               keyProviderType.setSigningAlias(StaxParserUtil.getElementText(xmlEventReader));
             }
         }
         return keyProviderType;

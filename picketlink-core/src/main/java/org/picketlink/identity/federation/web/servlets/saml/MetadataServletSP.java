@@ -50,11 +50,8 @@ import org.picketlink.identity.federation.core.saml.v2.writers.SAMLMetadataWrite
 import org.picketlink.identity.federation.core.util.CoreConfigUtil;
 import org.picketlink.identity.federation.core.util.StaxUtil;
 import org.picketlink.identity.federation.core.util.XMLEncryptionUtil;
-import org.picketlink.identity.federation.saml.v2.metadata.EntitiesDescriptorType;
-import org.picketlink.identity.federation.saml.v2.metadata.EntityDescriptorType;
+import org.picketlink.identity.federation.saml.v2.metadata.*;
 import org.picketlink.identity.federation.saml.v2.metadata.EntityDescriptorType.EDTDescriptorChoiceType;
-import org.picketlink.identity.federation.saml.v2.metadata.KeyDescriptorType;
-import org.picketlink.identity.federation.saml.v2.metadata.RoleDescriptorType;
 import org.picketlink.identity.federation.web.constants.GeneralConstants;
 import org.picketlink.identity.federation.web.util.ConfigurationUtil;
 import org.w3c.dom.Element;
@@ -221,9 +218,26 @@ public class MetadataServletSP extends HttpServlet {
     private void updateKeyDescriptor(EntityDescriptorType entityD, KeyDescriptorType keyD) {
         List<EDTDescriptorChoiceType> objs = entityD.getChoiceType().get(0).getDescriptors();
         if (objs != null) {
-            for (EDTDescriptorChoiceType roleD : objs) {
-                RoleDescriptorType roleDescriptor = roleD.getRoleDescriptor();
-                roleDescriptor.addKeyDescriptor(keyD);
+            for (EDTDescriptorChoiceType choiceTypeDesc : objs) {
+                AttributeAuthorityDescriptorType attribDescriptor = choiceTypeDesc.getAttribDescriptor();
+                if (attribDescriptor != null)
+                    attribDescriptor.addKeyDescriptor(keyD);
+                AuthnAuthorityDescriptorType authnDescriptor = choiceTypeDesc.getAuthnDescriptor();
+                if (authnDescriptor != null)
+                    authnDescriptor.addKeyDescriptor(keyD);
+                IDPSSODescriptorType idpDescriptor = choiceTypeDesc.getIdpDescriptor();
+                if (idpDescriptor != null)
+                    idpDescriptor.addKeyDescriptor(keyD);
+                PDPDescriptorType pdpDescriptor = choiceTypeDesc.getPdpDescriptor();
+                if (pdpDescriptor != null)
+                    pdpDescriptor.addKeyDescriptor(keyD);
+                RoleDescriptorType roleDescriptor = choiceTypeDesc.getRoleDescriptor();
+                if (roleDescriptor != null)
+                    roleDescriptor.addKeyDescriptor(keyD);
+                SPSSODescriptorType spDescriptorType = choiceTypeDesc.getSpDescriptor();
+                if (spDescriptorType != null)
+                    spDescriptorType.addKeyDescriptor(keyD);
+
             }
         }
     }
