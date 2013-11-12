@@ -75,7 +75,9 @@ public class MetadataServletSP extends HttpServlet {
 
     private transient IMetadataProvider<?> metadataProvider = null;
 
-    private transient EntitiesDescriptorType metadata;
+    private transient EntitiesDescriptorType entitiesDescriptor;
+
+    private transient EntityDescriptorType entityDescriptor;
 
     private String signingAlias = null;
 
@@ -132,8 +134,14 @@ public class MetadataServletSP extends HttpServlet {
         if (isNotNull(fileInjectionStr)) {
             metadataProvider.injectFileStream(context.getResourceAsStream(fileInjectionStr));
         }
-
-        metadata = (EntitiesDescriptorType) metadataProvider.getMetaData();
+        Object metadata = metadataProvider.getMetaData();
+        if (metadata instanceof EntitiesDescriptorType) {
+            entitiesDescriptor = (EntitiesDescriptorType) metadata;
+        }else if (metadata instanceof EntityDescriptorType) {
+            entityDescriptor = (EntityDescriptorType) metadata;
+        } else {
+            throw new RuntimeException(ErrorCodes.PARSING_ERROR+"Invalid metadata type");
+        }
 
         // Get the trust manager information
         KeyProviderType keyProvider = providerType.getKeyProvider();
@@ -157,18 +165,21 @@ public class MetadataServletSP extends HttpServlet {
             // TODO: Assume just signing key for now
             KeyDescriptorType keyDescriptor = KeyDescriptorMetaDataBuilder.createKeyDescriptor(keyInfo, null, 0, true, false);
 
-            updateKeyDescriptors(metadata, keyDescriptor);
-
+            if (entitiesDescriptor != null)
+                updateKeyDescriptors(entitiesDescriptor, keyDescriptor);
+            else
+                updateKeyDescriptor(entityDescriptor,keyDescriptor);
             // encryption
-            if (this.encryptingAlias != null) {
-                cert = keyManager.getCertificate(encryptingAlias);
-                keyInfo = KeyUtil.getKeyInfo(cert);
-                String certAlgo = cert.getPublicKey().getAlgorithm();
-                keyDescriptor = KeyDescriptorMetaDataBuilder.createKeyDescriptor(keyInfo,
-                        XMLEncryptionUtil.getEncryptionURL(certAlgo), XMLEncryptionUtil.getEncryptionKeySize(certAlgo), false,
-                        true);
-                updateKeyDescriptors(metadata, keyDescriptor);
-            }
+            if (encryptingAlias == null)
+                encryptingAlias = signingAlias;
+            cert = keyManager.getCertificate(encryptingAlias);
+            keyInfo = KeyUtil.getKeyInfo(cert);
+            keyDescriptor = KeyDescriptorMetaDataBuilder.createKeyDescriptor(keyInfo, null, 0, false, true);
+            if (entitiesDescriptor != null)
+                updateKeyDescriptors(entitiesDescriptor, keyDescriptor);
+            else
+                updateKeyDescriptor(entityDescriptor,keyDescriptor);
+
         }catch(Exception e){
             throw  new RuntimeException(e);
         }
@@ -196,7 +207,10 @@ public class MetadataServletSP extends HttpServlet {
         try {
             XMLStreamWriter streamWriter = StaxUtil.getXMLStreamWriter(os);
             SAMLMetadataWriter writer = new SAMLMetadataWriter(streamWriter);
-            writer.writeEntitiesDescriptor(metadata);
+            if (entitiesDescriptor != null)
+                writer.writeEntitiesDescriptor(entitiesDescriptor);
+            else
+                writer.writeEntityDescriptor(entityDescriptor);
         } catch (ProcessingException e) {
             throw new ServletException(e);
         }
