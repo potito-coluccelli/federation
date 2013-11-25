@@ -20,10 +20,11 @@ package org.picketlink.identity.federation.web.servlets.saml;
 
 import static org.picketlink.identity.federation.core.util.StringUtil.isNotNull;
 
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
+import java.io.*;
+import java.security.GeneralSecurityException;
+import java.security.KeyPair;
 import java.security.cert.Certificate;
+import java.security.cert.X509Certificate;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -34,7 +35,19 @@ import javax.servlet.ServletException;
 import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+import javax.xml.crypto.MarshalException;
+import javax.xml.crypto.dsig.DigestMethod;
+import javax.xml.crypto.dsig.SignatureMethod;
+import javax.xml.crypto.dsig.XMLSignatureException;
+import javax.xml.parsers.DocumentBuilder;
+import javax.xml.parsers.DocumentBuilderFactory;
+import javax.xml.parsers.ParserConfigurationException;
 import javax.xml.stream.XMLStreamWriter;
+import javax.xml.transform.Transformer;
+import javax.xml.transform.TransformerException;
+import javax.xml.transform.TransformerFactory;
+import javax.xml.transform.dom.DOMSource;
+import javax.xml.transform.stream.StreamResult;
 
 import org.apache.log4j.Logger;
 import org.picketlink.identity.federation.api.saml.v2.metadata.KeyDescriptorMetaDataBuilder;
@@ -44,17 +57,24 @@ import org.picketlink.identity.federation.core.config.*;
 import org.picketlink.identity.federation.core.exceptions.ParsingException;
 import org.picketlink.identity.federation.core.exceptions.ProcessingException;
 import org.picketlink.identity.federation.core.interfaces.IMetadataProvider;
+import org.picketlink.identity.federation.core.interfaces.TrustKeyConfigurationException;
 import org.picketlink.identity.federation.core.interfaces.TrustKeyManager;
 import org.picketlink.identity.federation.core.saml.v2.constants.JBossSAMLConstants;
 import org.picketlink.identity.federation.core.saml.v2.writers.SAMLMetadataWriter;
 import org.picketlink.identity.federation.core.util.CoreConfigUtil;
 import org.picketlink.identity.federation.core.util.StaxUtil;
 import org.picketlink.identity.federation.core.util.XMLEncryptionUtil;
+import org.picketlink.identity.federation.core.util.XMLSignatureUtil;
 import org.picketlink.identity.federation.saml.v2.metadata.*;
 import org.picketlink.identity.federation.saml.v2.metadata.EntityDescriptorType.EDTDescriptorChoiceType;
 import org.picketlink.identity.federation.web.constants.GeneralConstants;
 import org.picketlink.identity.federation.web.util.ConfigurationUtil;
+import org.w3c.dom.Document;
 import org.w3c.dom.Element;
+import org.w3c.dom.Node;
+import org.w3c.dom.NodeList;
+import org.xml.sax.SAXException;
+
 /**
  * Metadata servlet for the IDP/SP
  *
@@ -167,24 +187,31 @@ public class MetadataServletSP extends HttpServlet {
 
             if (entitiesDescriptor != null)
                 updateKeyDescriptors(entitiesDescriptor, keyDescriptor);
-            else
+            else{
                 updateKeyDescriptor(entityDescriptor,keyDescriptor);
+
+            }
             // encryption
             if (encryptingAlias == null)
                 encryptingAlias = signingAlias;
             cert = keyManager.getCertificate(encryptingAlias);
             keyInfo = KeyUtil.getKeyInfo(cert);
+
             keyDescriptor = KeyDescriptorMetaDataBuilder.createKeyDescriptor(keyInfo, null, 0, false, true);
             if (entitiesDescriptor != null)
                 updateKeyDescriptors(entitiesDescriptor, keyDescriptor);
-            else
+            else{
                 updateKeyDescriptor(entityDescriptor,keyDescriptor);
+                insertDigestAndSignature(entityDescriptor);
+            }
 
         }catch(Exception e){
             throw  new RuntimeException(e);
         }
 
     }
+
+
 
     private ProviderType getProviderType(InputStream is) {
         ProviderType providerType  = null;
@@ -211,6 +238,7 @@ public class MetadataServletSP extends HttpServlet {
                 writer.writeEntitiesDescriptor(entitiesDescriptor);
             else
                 writer.writeEntityDescriptor(entityDescriptor);
+
         } catch (ProcessingException e) {
             throw new ServletException(e);
         }
@@ -219,6 +247,85 @@ public class MetadataServletSP extends HttpServlet {
          * MetaDataBuilder.getMarshaller().marshal(jaxbEl , os); } catch (Exception e) { throw new RuntimeException(e); }
          */
     }
+
+    private void insertDigestAndSignature(EntityDescriptorType entityDescriptor) throws ServletException{
+        try {
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            XMLStreamWriter streamWriter = StaxUtil.getXMLStreamWriter(baos);
+            SAMLMetadataWriter writer = new SAMLMetadataWriter(streamWriter);
+            writer.writeEntityDescriptor(entityDescriptor);
+            Document doc = DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(new ByteArrayInputStream(baos.toByteArray()));
+            KeyPair keyPair = new KeyPair(keyManager.getCertificate(signingAlias).getPublicKey(), keyManager.getSigningKey());
+            //Sign doc
+            Element spssoDesc = doc.getDocumentElement(); //TODO: EXTRACT ONLY THE SPSSODESCRIPTOR!!!!
+            XMLSignatureUtil.sign(spssoDesc,spssoDesc.getFirstChild(),keyPair,DigestMethod.SHA1,
+                    SignatureMethod.RSA_SHA1,"",(X509Certificate) keyManager.getCertificate(signingAlias));
+            //extract Signature
+            entityDescriptor.setSignature(extractSignatureFromDoc(spssoDesc));
+            System.out.println("*************************************DOOOC ************************************");
+            System.out.println(getStringFromDocument(spssoDesc.getOwnerDocument()));
+            System.out.println("*************************************/DOOOC ************************************");
+        } catch (Exception e) {
+            throw new ServletException(e);
+        }
+
+    }
+
+    private Element extractSignatureFromDoc(Element doc) {
+        return (Element) doc.getElementsByTagName("Signature").item(0);
+
+    }
+
+    //TODO:TEMPORANEO PER TESTARE SIGN RIMUOVERE!!!!!
+    private void signEntityDescriptor(){
+
+        try {
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            XMLStreamWriter streamWriter = StaxUtil.getXMLStreamWriter(baos);
+            SAMLMetadataWriter writer = new SAMLMetadataWriter(streamWriter);
+            writer.writeEntityDescriptor(entityDescriptor);
+            Document doc = DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(new ByteArrayInputStream(baos.toByteArray()));
+            Node n= doc.getFirstChild();
+            System.out.println(n.getLocalName());
+            System.out.println(n.getNodeName());
+
+            KeyPair keyPair = new KeyPair(keyManager.getCertificate(signingAlias).getPublicKey(), keyManager.getSigningKey());
+            Element spssoDesc = doc.getDocumentElement();
+
+            XMLSignatureUtil.sign(spssoDesc,spssoDesc.getFirstChild(),keyPair,DigestMethod.SHA1,
+                    SignatureMethod.RSA_SHA1,"",(X509Certificate) keyManager.getCertificate(signingAlias));
+            System.out.println(getStringFromDocument(spssoDesc.getOwnerDocument()));
+        } catch (ProcessingException e) {
+            e.printStackTrace();  //To change body of catch statement use File | Settings | File Templates.
+        } catch (SAXException e) {
+            e.printStackTrace();  //To change body of catch statement use File | Settings | File Templates.
+        } catch (ParserConfigurationException e) {
+            e.printStackTrace();  //To change body of catch statement use File | Settings | File Templates.
+        } catch (IOException e) {
+            e.printStackTrace();  //To change body of catch statement use File | Settings | File Templates.
+        } catch (MarshalException e) {
+            e.printStackTrace();  //To change body of catch statement use File | Settings | File Templates.
+        } catch (TrustKeyConfigurationException e) {
+            e.printStackTrace();  //To change body of catch statement use File | Settings | File Templates.
+        } catch (GeneralSecurityException e) {
+            e.printStackTrace();  //To change body of catch statement use File | Settings | File Templates.
+        } catch (XMLSignatureException e) {
+            e.printStackTrace();  //To change body of catch statement use File | Settings | File Templates.
+        } catch (TransformerException e) {
+            e.printStackTrace();  //To change body of catch statement use File | Settings | File Templates.
+        }
+    }
+    private String getStringFromDocument(Document doc) throws TransformerException {
+        DOMSource domSource = new DOMSource(doc);
+        StringWriter writer = new StringWriter();
+        StreamResult result = new StreamResult(writer);
+        TransformerFactory tf = TransformerFactory.newInstance();
+        Transformer transformer = tf.newTransformer();
+        transformer.transform(domSource, result);
+        return writer.toString();
+    }
+    //TODO: FINE TEMPORANEO
+
 
     private void updateKeyDescriptors(EntitiesDescriptorType entityId, KeyDescriptorType keyD){
         List<Object> entities =  entityId.getEntityDescriptor();
