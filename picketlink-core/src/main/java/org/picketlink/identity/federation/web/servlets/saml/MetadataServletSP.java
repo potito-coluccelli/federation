@@ -211,21 +211,6 @@ public class MetadataServletSP extends HttpServlet {
 
     }
 
-
-
-    private ProviderType getProviderType(InputStream is) {
-        ProviderType providerType  = null;
-        if (is != null) {
-            try {
-                PicketLinkType picketLinkConfiguration = ConfigurationUtil.getConfiguration(is);
-                providerType = picketLinkConfiguration.getIdpOrSP();
-            } catch (ParsingException e) {
-                throw new RuntimeException(e);
-            }
-        }
-        return providerType;
-    }
-
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
         resp.setContentType(JBossSAMLConstants.METADATA_MIME.get());
@@ -262,9 +247,6 @@ public class MetadataServletSP extends HttpServlet {
                     SignatureMethod.RSA_SHA1,"",(X509Certificate) keyManager.getCertificate(signingAlias));
             //extract Signature
             entityDescriptor.setSignature(extractSignatureFromDoc(spssoDesc));
-            System.out.println("*************************************DOOOC ************************************");
-            System.out.println(getStringFromDocument(spssoDesc.getOwnerDocument()));
-            System.out.println("*************************************/DOOOC ************************************");
         } catch (Exception e) {
             throw new ServletException(e);
         }
@@ -272,50 +254,11 @@ public class MetadataServletSP extends HttpServlet {
     }
 
     private Element extractSignatureFromDoc(Element doc) {
-        return (Element) doc.getElementsByTagName("Signature").item(0);
+        return (Element) doc.getFirstChild();
 
     }
 
-    //TODO:TEMPORANEO PER TESTARE SIGN RIMUOVERE!!!!!
-    private void signEntityDescriptor(){
-
-        try {
-            ByteArrayOutputStream baos = new ByteArrayOutputStream();
-            XMLStreamWriter streamWriter = StaxUtil.getXMLStreamWriter(baos);
-            SAMLMetadataWriter writer = new SAMLMetadataWriter(streamWriter);
-            writer.writeEntityDescriptor(entityDescriptor);
-            Document doc = DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(new ByteArrayInputStream(baos.toByteArray()));
-            Node n= doc.getFirstChild();
-            System.out.println(n.getLocalName());
-            System.out.println(n.getNodeName());
-
-            KeyPair keyPair = new KeyPair(keyManager.getCertificate(signingAlias).getPublicKey(), keyManager.getSigningKey());
-            Element spssoDesc = doc.getDocumentElement();
-
-            XMLSignatureUtil.sign(spssoDesc,spssoDesc.getFirstChild(),keyPair,DigestMethod.SHA1,
-                    SignatureMethod.RSA_SHA1,"",(X509Certificate) keyManager.getCertificate(signingAlias));
-            System.out.println(getStringFromDocument(spssoDesc.getOwnerDocument()));
-        } catch (ProcessingException e) {
-            e.printStackTrace();  //To change body of catch statement use File | Settings | File Templates.
-        } catch (SAXException e) {
-            e.printStackTrace();  //To change body of catch statement use File | Settings | File Templates.
-        } catch (ParserConfigurationException e) {
-            e.printStackTrace();  //To change body of catch statement use File | Settings | File Templates.
-        } catch (IOException e) {
-            e.printStackTrace();  //To change body of catch statement use File | Settings | File Templates.
-        } catch (MarshalException e) {
-            e.printStackTrace();  //To change body of catch statement use File | Settings | File Templates.
-        } catch (TrustKeyConfigurationException e) {
-            e.printStackTrace();  //To change body of catch statement use File | Settings | File Templates.
-        } catch (GeneralSecurityException e) {
-            e.printStackTrace();  //To change body of catch statement use File | Settings | File Templates.
-        } catch (XMLSignatureException e) {
-            e.printStackTrace();  //To change body of catch statement use File | Settings | File Templates.
-        } catch (TransformerException e) {
-            e.printStackTrace();  //To change body of catch statement use File | Settings | File Templates.
-        }
-    }
-    private String getStringFromDocument(Document doc) throws TransformerException {
+    private String getStringFromDocument(Element doc) throws TransformerException {
         DOMSource domSource = new DOMSource(doc);
         StringWriter writer = new StringWriter();
         StreamResult result = new StreamResult(writer);
@@ -324,7 +267,19 @@ public class MetadataServletSP extends HttpServlet {
         transformer.transform(domSource, result);
         return writer.toString();
     }
-    //TODO: FINE TEMPORANEO
+
+    private ProviderType getProviderType(InputStream is) {
+        ProviderType providerType  = null;
+        if (is != null) {
+            try {
+                PicketLinkType picketLinkConfiguration = ConfigurationUtil.getConfiguration(is);
+                providerType = picketLinkConfiguration.getIdpOrSP();
+            } catch (ParsingException e) {
+                throw new RuntimeException(e);
+            }
+        }
+        return providerType;
+    }
 
 
     private void updateKeyDescriptors(EntitiesDescriptorType entityId, KeyDescriptorType keyD){
