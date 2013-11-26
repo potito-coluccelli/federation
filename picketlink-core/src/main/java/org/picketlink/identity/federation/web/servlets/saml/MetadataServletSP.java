@@ -15,6 +15,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package org.picketlink.identity.federation.web.servlets.saml;
 
 
@@ -143,13 +144,7 @@ public class MetadataServletSP extends HttpServlet {
                 options.put(kvt.getKey(), kvt.getValue());
         }
         metadataProvider.init(options);
-            /*if (metadataProvider.isMultiple())
-                throw new RuntimeException(ErrorCodes.NOT_IMPLEMENTED_YET + "Multiple Entities not currently supported");
-            */
-        /**
-         * Since a metadata provider does not have access to the servlet context. It may be difficult to get to the resource
-         * from the TCL.
-         */
+
         String fileInjectionStr = metadataProvider.requireFileInjection();
         if (isNotNull(fileInjectionStr)) {
             metadataProvider.injectFileStream(context.getResourceAsStream(fileInjectionStr));
@@ -240,9 +235,9 @@ public class MetadataServletSP extends HttpServlet {
             SAMLMetadataWriter writer = new SAMLMetadataWriter(streamWriter);
             writer.writeEntityDescriptor(entityDescriptor);
             Document doc = DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(new ByteArrayInputStream(baos.toByteArray()));
-            KeyPair keyPair = new KeyPair(keyManager.getCertificate(signingAlias).getPublicKey(), keyManager.getSigningKey());
+            KeyPair keyPair = new KeyPair(null, keyManager.getSigningKey());
             //Sign doc
-            Element spssoDesc = doc.getDocumentElement(); //TODO: EXTRACT ONLY THE SPSSODESCRIPTOR!!!!
+            Element spssoDesc = doc.getDocumentElement();
             XMLSignatureUtil.sign(spssoDesc,spssoDesc.getFirstChild(),keyPair,DigestMethod.SHA1,
                     SignatureMethod.RSA_SHA1,"",(X509Certificate) keyManager.getCertificate(signingAlias));
             //extract Signature
