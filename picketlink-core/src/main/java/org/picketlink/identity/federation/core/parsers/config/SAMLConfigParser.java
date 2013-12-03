@@ -48,6 +48,10 @@ public class SAMLConfigParser extends AbstractParser {
     
     public static final String LOGOUT_PAGE = "LogOutPage";
 
+    public static final String LOGOUT_URL = "LogOutUrl";
+
+    public static final String LOGOUT_RESPONSE_LOCATION = "LogOutResponseLocation";
+
     public static final String IDP = "PicketLinkIDP";
 
     public static final String SP = "PicketLinkSP";
@@ -295,6 +299,18 @@ public class SAMLConfigParser extends AbstractParser {
         attribute = startElement.getAttributeByName(attributeQName);
         if (attribute != null) {
             sp.setLogOutPage(StaxParserUtil.getAttributeValue(attribute));
+        }
+
+        attributeQName = new QName("", LOGOUT_URL);
+        attribute = startElement.getAttributeByName(attributeQName);
+        if (attribute != null) {
+            sp.setLogoutUrl(StaxParserUtil.getAttributeValue(attribute));
+        }
+
+        attributeQName = new QName("", LOGOUT_RESPONSE_LOCATION);
+        attribute = startElement.getAttributeByName(attributeQName);
+        if (attribute != null) {
+            sp.setLogoutResponseLocation(StaxParserUtil.getAttributeValue(attribute));
         }
 
         attributeQName = new QName("", IDP_USES_POST_BINDING);

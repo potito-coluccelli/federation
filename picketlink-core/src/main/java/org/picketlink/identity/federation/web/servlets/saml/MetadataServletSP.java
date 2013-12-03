@@ -22,7 +22,6 @@ package org.picketlink.identity.federation.web.servlets.saml;
 import static org.picketlink.identity.federation.core.util.StringUtil.isNotNull;
 
 import java.io.*;
-import java.security.GeneralSecurityException;
 import java.security.KeyPair;
 import java.security.cert.Certificate;
 import java.security.cert.X509Certificate;
@@ -36,13 +35,9 @@ import javax.servlet.ServletException;
 import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
-import javax.xml.crypto.MarshalException;
 import javax.xml.crypto.dsig.DigestMethod;
 import javax.xml.crypto.dsig.SignatureMethod;
-import javax.xml.crypto.dsig.XMLSignatureException;
-import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
-import javax.xml.parsers.ParserConfigurationException;
 import javax.xml.stream.XMLStreamWriter;
 import javax.xml.transform.Transformer;
 import javax.xml.transform.TransformerException;
@@ -58,13 +53,12 @@ import org.picketlink.identity.federation.core.config.*;
 import org.picketlink.identity.federation.core.exceptions.ParsingException;
 import org.picketlink.identity.federation.core.exceptions.ProcessingException;
 import org.picketlink.identity.federation.core.interfaces.IMetadataProvider;
-import org.picketlink.identity.federation.core.interfaces.TrustKeyConfigurationException;
 import org.picketlink.identity.federation.core.interfaces.TrustKeyManager;
+import org.picketlink.identity.federation.core.saml.md.providers.MetadataProviderUtils;
 import org.picketlink.identity.federation.core.saml.v2.constants.JBossSAMLConstants;
 import org.picketlink.identity.federation.core.saml.v2.writers.SAMLMetadataWriter;
 import org.picketlink.identity.federation.core.util.CoreConfigUtil;
 import org.picketlink.identity.federation.core.util.StaxUtil;
-import org.picketlink.identity.federation.core.util.XMLEncryptionUtil;
 import org.picketlink.identity.federation.core.util.XMLSignatureUtil;
 import org.picketlink.identity.federation.saml.v2.metadata.*;
 import org.picketlink.identity.federation.saml.v2.metadata.EntityDescriptorType.EDTDescriptorChoiceType;
@@ -72,15 +66,12 @@ import org.picketlink.identity.federation.web.constants.GeneralConstants;
 import org.picketlink.identity.federation.web.util.ConfigurationUtil;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
-import org.w3c.dom.Node;
-import org.w3c.dom.NodeList;
-import org.xml.sax.SAXException;
 
 /**
- * Metadata servlet for the IDP/SP
+ * Metadata servlet for the SP
  *
- * @author Anil.Saldhana@redhat.com
- * @since Apr 22, 2009
+ * Author: coluccelli@redhat.com
+ *
  */
 public class MetadataServletSP extends HttpServlet {
 
@@ -119,7 +110,7 @@ public class MetadataServletSP extends HttpServlet {
             log.trace("Config File Location=" + configFileLocation);
         InputStream is = context.getResourceAsStream(configFileLocation);
         if (is == null)
-            throw new RuntimeException(ErrorCodes.RESOURCE_NOT_FOUND + configFileLocation + " missing");
+            throw new ServletException(ErrorCodes.RESOURCE_NOT_FOUND + configFileLocation + " missing");
 
         // Look for signing alias
         signingAlias = config.getInitParameter("signingAlias");
@@ -133,9 +124,9 @@ public class MetadataServletSP extends HttpServlet {
         try {
             metadataProvider = (IMetadataProvider) clazz.newInstance();
         } catch (InstantiationException e) {
-            throw new RuntimeException(e);
+            throw new ServletException(e);
         } catch (IllegalAccessException e) {
-            throw new RuntimeException(e);
+            throw new ServletException(e);
         }
         List<KeyValueType> keyValues = metadataProviderType.getOption();
         Map<String, String> options = new HashMap<String, String>();
@@ -143,6 +134,17 @@ public class MetadataServletSP extends HttpServlet {
             for (KeyValueType kvt : keyValues)
                 options.put(kvt.getKey(), kvt.getValue());
         }
+
+        //Add parameters from picket-link.xml
+        String bindingURI = MetadataProviderUtils.getBindingURI(providerType);
+        if (bindingURI == null)
+            throw new ServletException("Binding not valid: "+bindingURI+" only POST and REDIRECT supported");
+
+        options.put(MetadataProviderUtils.BINDING_URI,bindingURI);
+        options.put(MetadataProviderUtils.SERVICE_URL,MetadataProviderUtils.getServiceURL(providerType));
+        options.put(MetadataProviderUtils.LOGOUT_URL,MetadataProviderUtils.getLogoutURL(providerType));
+        options.put(MetadataProviderUtils.LOGOUT_RESPONSE_LOCATION,MetadataProviderUtils.getLogoutResponseLocation(providerType));
+
         metadataProvider.init(options);
 
         String fileInjectionStr = metadataProvider.requireFileInjection();
@@ -155,7 +157,7 @@ public class MetadataServletSP extends HttpServlet {
         }else if (metadata instanceof EntityDescriptorType) {
             entityDescriptor = (EntityDescriptorType) metadata;
         } else {
-            throw new RuntimeException(ErrorCodes.PARSING_ERROR+"Invalid metadata type");
+            throw new ServletException(ErrorCodes.PARSING_ERROR+"Invalid metadata type");
         }
 
         // Get the trust manager information
@@ -163,7 +165,7 @@ public class MetadataServletSP extends HttpServlet {
         signingAlias = keyProvider.getSigningAlias();
         String keyManagerClassName = keyProvider.getClassName();
         if (keyManagerClassName == null)
-            throw new RuntimeException(ErrorCodes.NULL_VALUE + "KeyManager class name");
+            throw new ServletException(ErrorCodes.NULL_VALUE + "KeyManager class name");
 
         clazz = SecurityActions.loadClass(getClass(), keyManagerClassName);
 
@@ -195,16 +197,18 @@ public class MetadataServletSP extends HttpServlet {
             keyDescriptor = KeyDescriptorMetaDataBuilder.createKeyDescriptor(keyInfo, null, 0, false, true);
             if (entitiesDescriptor != null)
                 updateKeyDescriptors(entitiesDescriptor, keyDescriptor);
+                //TODO: IMPLEMENT FOREACH (entityDescriptor) signAndAddAttribs
             else{
                 updateKeyDescriptor(entityDescriptor,keyDescriptor);
-                insertDigestAndSignature(entityDescriptor);
+                signAndAddAttribs(entityDescriptor);
             }
 
         }catch(Exception e){
-            throw  new RuntimeException(e);
+            throw  new ServletException(e);
         }
 
     }
+
 
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
@@ -228,7 +232,7 @@ public class MetadataServletSP extends HttpServlet {
          */
     }
 
-    private void insertDigestAndSignature(EntityDescriptorType entityDescriptor) throws ServletException{
+    private void signAndAddAttribs(EntityDescriptorType entityDescriptor) throws ServletException{
         try {
             ByteArrayOutputStream baos = new ByteArrayOutputStream();
             XMLStreamWriter streamWriter = StaxUtil.getXMLStreamWriter(baos);
@@ -242,6 +246,7 @@ public class MetadataServletSP extends HttpServlet {
                     SignatureMethod.RSA_SHA1,"",(X509Certificate) keyManager.getCertificate(signingAlias));
             //extract Signature
             entityDescriptor.setSignature(extractSignatureFromDoc(spssoDesc));
+
         } catch (Exception e) {
             throw new ServletException(e);
         }
