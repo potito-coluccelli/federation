@@ -17,18 +17,22 @@
  */
 package org.picketlink.identity.federation.core.saml.md.providers;
 
+import org.picketlink.identity.federation.core.config.PicketLinkType;
 import org.picketlink.identity.federation.core.config.ProviderType;
 import org.picketlink.identity.federation.core.config.SPType;
+import org.picketlink.identity.federation.core.exceptions.ParsingException;
+import org.picketlink.identity.federation.core.handler.config.Handler;
+import org.picketlink.identity.federation.core.handler.config.Handlers;
+import org.picketlink.identity.federation.core.saml.v2.constants.JBossSAMLURIConstants;
+import org.picketlink.identity.federation.web.util.ConfigurationUtil;
+
+import java.io.InputStream;
 
 /**
  * Author: coluccelli@redhat.com
  */
 
 public class MetadataProviderUtils {
-    public static final String BINDING_URI = "BindingURI";
-    public static final String SERVICE_URL = "ServiceURL";
-    public static final String LOGOUT_URL = "LogoutUrl";
-    public static final String LOGOUT_RESPONSE_LOCATION = "LogoutResponseLocation";
 
     public static String getLogoutURL(ProviderType providerType) {
         if (providerType instanceof SPType){
@@ -51,9 +55,9 @@ public class MetadataProviderUtils {
         if (providerType instanceof SPType){//TODO: Add support for IDP
             SPType spType = (SPType) providerType;
             if (spType.getBindingType().equals("POST"))
-                return "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST";
+                return JBossSAMLURIConstants.SAML_HTTP_POST_BINDING.get();
             if (spType.getBindingType().equals("REDIRECT"))
-                return "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-REDIRECT";
+                return JBossSAMLURIConstants.SAML_HTTP_REDIRECT_BINDING.get();
         }
         return null;
     }
@@ -64,4 +68,28 @@ public class MetadataProviderUtils {
         }
         return null;
     }
+
+    public static PicketLinkType getPicketLinkConf(InputStream is){
+        try {
+            return ConfigurationUtil.getConfiguration(is);
+        } catch (ParsingException e) {
+            throw new RuntimeException(e);        }
+    }
+
+    public static ProviderType getProviderType(PicketLinkType picketLinkConfiguration) {
+        ProviderType providerType  = null;
+        if (picketLinkConfiguration != null)
+            providerType = picketLinkConfiguration.getIdpOrSP();
+
+        return providerType;
+    }
+
+    public static Handler getHandler(PicketLinkType picketLinkType, String handlerName) throws ParsingException {
+        Handlers handlers = picketLinkType.getHandlers();
+        for (Handler h:handlers.getHandler()){
+            if (h.getClazz().equals(handlerName)) return h;
+        }
+        return null;
+    }
+
 }

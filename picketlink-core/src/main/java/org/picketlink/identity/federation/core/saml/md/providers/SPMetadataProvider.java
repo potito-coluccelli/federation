@@ -22,30 +22,46 @@ package org.picketlink.identity.federation.core.saml.md.providers;
 
 import org.picketlink.identity.federation.PicketLinkLogger;
 import org.picketlink.identity.federation.PicketLinkLoggerFactory;
+import org.picketlink.identity.federation.core.config.KeyValueType;
+import org.picketlink.identity.federation.core.config.PicketLinkType;
+import org.picketlink.identity.federation.core.config.ProviderType;
+import org.picketlink.identity.federation.core.exceptions.ParsingException;
+import org.picketlink.identity.federation.core.handler.config.Handler;
 import org.picketlink.identity.federation.core.interfaces.IMetadataProvider;
-import org.picketlink.identity.federation.saml.v2.metadata.EndpointType;
-import org.picketlink.identity.federation.saml.v2.metadata.EntityDescriptorType;
-import org.picketlink.identity.federation.saml.v2.metadata.IndexedEndpointType;
-import org.picketlink.identity.federation.saml.v2.metadata.SPSSODescriptorType;
+import org.picketlink.identity.federation.core.saml.v2.constants.JBossSAMLConstants;
+import org.picketlink.identity.federation.core.saml.v2.constants.JBossSAMLURIConstants;
+import org.picketlink.identity.federation.saml.v2.metadata.*;
+import org.picketlink.identity.federation.web.util.ConfigurationUtil;
 
 import java.io.InputStream;
 import java.net.URI;
 import java.security.PublicKey;
 import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
+import java.util.StringTokenizer;
 
-
+/**
+ * Metadata provider for SP
+ *
+ * Author: coluccelli@redhat.com
+ *
+ */
 public class SPMetadataProvider extends AbstractMetadataProvider implements
         IMetadataProvider<EntityDescriptorType> {
 
     private static final PicketLinkLogger logger = PicketLinkLoggerFactory.getLogger();
     private static final String ENTITY_ID_KEY="EntityId";
     private static final String PROTOCOL = "urn:oasis:names:tc:SAML:2.0:protocol";
+    private static final String ATTRIBUTE_KEYS = "ATTRIBUTE_KEYS";
+    private static final String SERVICE_NAME = "ServiceName" ;
     private String entityId;
     private String logoutPage;
     private String bindingUri;
     private String serviceUrl;
     private String logoutResponseLocation;
+    private String serviceName;
+    private PicketLinkType picketLinkType;
 
     @Override
     public void init(Map<String, String> options) {
@@ -53,10 +69,16 @@ public class SPMetadataProvider extends AbstractMetadataProvider implements
         entityId = options.get(ENTITY_ID_KEY);
         if (entityId == null)
             throw logger.optionNotSet("EntityId");
-        logoutPage = options.get(MetadataProviderUtils.LOGOUT_URL);
-        logoutResponseLocation = options.get(MetadataProviderUtils.LOGOUT_RESPONSE_LOCATION);
-        bindingUri = options.get(MetadataProviderUtils.BINDING_URI);
-        serviceUrl = options.get(MetadataProviderUtils.SERVICE_URL);
+        ProviderType providerType = MetadataProviderUtils.getProviderType(picketLinkType);
+        //Add parameters from picket-link.xml
+        String bindingURI = MetadataProviderUtils.getBindingURI(providerType);
+        if (bindingURI == null) throw new RuntimeException("bindingURI cannot be null");
+
+        logoutPage = MetadataProviderUtils.getLogoutURL(providerType);
+        logoutResponseLocation = MetadataProviderUtils.getLogoutResponseLocation(providerType);
+        bindingUri = bindingURI;
+        serviceUrl = MetadataProviderUtils.getServiceURL(providerType);
+        serviceName = options.get(SERVICE_NAME);
     }
 
     @Override
@@ -71,13 +93,57 @@ public class SPMetadataProvider extends AbstractMetadataProvider implements
             endpointType.setResponseLocation(URI.create(logoutResponseLocation));
             spSSO.addSingleLogoutService(endpointType);
         }
-        spSSO.addAssertionConsumerService(new IndexedEndpointType(URI.create(bindingUri),URI.create(serviceUrl)));
+        IndexedEndpointType assertionConsumerSvc = new IndexedEndpointType(URI.create(bindingUri), URI.create(serviceUrl));
+        assertionConsumerSvc.setIsDefault(true);
+        spSSO.addAssertionConsumerService(assertionConsumerSvc);
+        if (serviceName != null)
+            spSSO.addAttributeConsumerService(getAttributeConsumerService());
         EntityDescriptorType.EDTDescriptorChoiceType edtDescChoice = new EntityDescriptorType.EDTDescriptorChoiceType(spSSO);
         EntityDescriptorType.EDTChoiceType edtChoice = EntityDescriptorType.EDTChoiceType.oneValue(edtDescChoice);
 
         EntityDescriptorType entityDescriptor = new EntityDescriptorType(entityId);
         entityDescriptor.addChoiceType(edtChoice);
         return entityDescriptor;
+    }
+
+    private AttributeConsumingServiceType getAttributeConsumerService() {
+        try {
+            Handler attributeHandler = MetadataProviderUtils.getHandler(picketLinkType,
+                    "org.picketlink.identity.federation.web.handlers.saml2.SAML2AttributeHandler");
+            List<KeyValueType> options = attributeHandler.getOption();
+            ArrayList<String> attributeVals = new ArrayList<String>();
+            for(KeyValueType option:options)
+                if (option.getKey().equals(ATTRIBUTE_KEYS)){
+                    for(String str:option.getValue().split(","))
+                        attributeVals.add(str);
+                }
+
+            AttributeConsumingServiceType attributeConsumingService = new AttributeConsumingServiceType(0);
+            for(String attributeVal:attributeVals){
+                RequestedAttributeType requestedAttributeType = new RequestedAttributeType(attributeVal);
+                requestedAttributeType.setIsRequired(true);
+                requestedAttributeType.setNameFormat(JBossSAMLURIConstants.ATTRIBUTE_FORMAT_URI.get());
+                attributeConsumingService.addRequestedAttribute(requestedAttributeType);
+            }
+
+            LocalizedNameType serviceLocName = new LocalizedNameType(JBossSAMLConstants.LANG_EN.get());
+            serviceLocName.setValue(serviceName);
+            attributeConsumingService.addServiceName(serviceLocName);
+
+            attributeConsumingService.setIsDefault(true);
+
+            return attributeConsumingService;
+        } catch (ParsingException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    public void setPicketLinkConf(PicketLinkType picketLinkType) {
+        this.picketLinkType = picketLinkType;
+    }
+
+    @Override
+    public void injectFileStream(InputStream fileStream) {
     }
 
     @Override
@@ -91,14 +157,12 @@ public class SPMetadataProvider extends AbstractMetadataProvider implements
     }
 
     @Override
-    public void injectFileStream(InputStream fileStream) {
-    }
-
-    @Override
     public void injectSigningKey(PublicKey publicKey) {
     }
 
     @Override
     public void injectEncryptionKey(PublicKey publicKey) {
     }
+
+
 }

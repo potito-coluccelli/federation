@@ -55,6 +55,7 @@ import org.picketlink.identity.federation.core.exceptions.ProcessingException;
 import org.picketlink.identity.federation.core.interfaces.IMetadataProvider;
 import org.picketlink.identity.federation.core.interfaces.TrustKeyManager;
 import org.picketlink.identity.federation.core.saml.md.providers.MetadataProviderUtils;
+import org.picketlink.identity.federation.core.saml.md.providers.SPMetadataProvider;
 import org.picketlink.identity.federation.core.saml.v2.constants.JBossSAMLConstants;
 import org.picketlink.identity.federation.core.saml.v2.writers.SAMLMetadataWriter;
 import org.picketlink.identity.federation.core.util.CoreConfigUtil;
@@ -116,7 +117,8 @@ public class MetadataServletSP extends HttpServlet {
         signingAlias = config.getInitParameter("signingAlias");
         encryptingAlias = config.getInitParameter("encryptingAlias");
 
-        ProviderType providerType = getProviderType(is);
+        PicketLinkType picketLinkType = MetadataProviderUtils.getPicketLinkConf(is);
+        ProviderType providerType = MetadataProviderUtils.getProviderType(picketLinkType);
 
         metadataProviderType = providerType.getMetaDataProvider();
         String fqn = metadataProviderType.getClassName();
@@ -135,22 +137,17 @@ public class MetadataServletSP extends HttpServlet {
                 options.put(kvt.getKey(), kvt.getValue());
         }
 
-        //Add parameters from picket-link.xml
-        String bindingURI = MetadataProviderUtils.getBindingURI(providerType);
-        if (bindingURI == null)
-            throw new ServletException("Binding not valid: "+bindingURI+" only POST and REDIRECT supported");
 
-        options.put(MetadataProviderUtils.BINDING_URI,bindingURI);
-        options.put(MetadataProviderUtils.SERVICE_URL,MetadataProviderUtils.getServiceURL(providerType));
-        options.put(MetadataProviderUtils.LOGOUT_URL,MetadataProviderUtils.getLogoutURL(providerType));
-        options.put(MetadataProviderUtils.LOGOUT_RESPONSE_LOCATION,MetadataProviderUtils.getLogoutResponseLocation(providerType));
-
-        metadataProvider.init(options);
-
+        //inject inputStream and other provider-specific properties
         String fileInjectionStr = metadataProvider.requireFileInjection();
         if (isNotNull(fileInjectionStr)) {
             metadataProvider.injectFileStream(context.getResourceAsStream(fileInjectionStr));
+        }else if (metadataProvider instanceof SPMetadataProvider){
+            ((SPMetadataProvider)metadataProvider).setPicketLinkConf(picketLinkType);
         }
+
+        metadataProvider.init(options);
+
         Object metadata = metadataProvider.getMetaData();
         if (metadata instanceof EntitiesDescriptorType) {
             entitiesDescriptor = (EntitiesDescriptorType) metadata;
@@ -268,18 +265,7 @@ public class MetadataServletSP extends HttpServlet {
         return writer.toString();
     }
 
-    private ProviderType getProviderType(InputStream is) {
-        ProviderType providerType  = null;
-        if (is != null) {
-            try {
-                PicketLinkType picketLinkConfiguration = ConfigurationUtil.getConfiguration(is);
-                providerType = picketLinkConfiguration.getIdpOrSP();
-            } catch (ParsingException e) {
-                throw new RuntimeException(e);
-            }
-        }
-        return providerType;
-    }
+
 
 
     private void updateKeyDescriptors(EntitiesDescriptorType entityId, KeyDescriptorType keyD){
