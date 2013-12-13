@@ -117,6 +117,7 @@ public class MetadataServletSP extends HttpServlet {
         signingAlias = config.getInitParameter("signingAlias");
         encryptingAlias = config.getInitParameter("encryptingAlias");
 
+
         PicketLinkType picketLinkType = MetadataProviderUtils.getPicketLinkConf(is);
         ProviderType providerType = MetadataProviderUtils.getProviderType(picketLinkType);
 

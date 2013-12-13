@@ -30,7 +30,9 @@ import org.picketlink.identity.federation.core.handler.config.Handler;
 import org.picketlink.identity.federation.core.interfaces.IMetadataProvider;
 import org.picketlink.identity.federation.core.saml.v2.constants.JBossSAMLConstants;
 import org.picketlink.identity.federation.core.saml.v2.constants.JBossSAMLURIConstants;
+import org.picketlink.identity.federation.saml.v2.assertion.NameIDType;
 import org.picketlink.identity.federation.saml.v2.metadata.*;
+import org.picketlink.identity.federation.web.constants.GeneralConstants;
 import org.picketlink.identity.federation.web.util.ConfigurationUtil;
 
 import java.io.InputStream;
@@ -61,6 +63,7 @@ public class SPMetadataProvider extends AbstractMetadataProvider implements
     private String serviceUrl;
     private String logoutResponseLocation;
     private String serviceName;
+    private String nameIdFormat;
     private PicketLinkType picketLinkType;
 
     @Override
@@ -79,6 +82,8 @@ public class SPMetadataProvider extends AbstractMetadataProvider implements
         bindingUri = bindingURI;
         serviceUrl = MetadataProviderUtils.getServiceURL(providerType);
         serviceName = options.get(SERVICE_NAME);
+        nameIdFormat = getNameIdFormat();
+
     }
 
     @Override
@@ -88,7 +93,7 @@ public class SPMetadataProvider extends AbstractMetadataProvider implements
         SPSSODescriptorType spSSO = new SPSSODescriptorType(protocols);
         spSSO.setAuthnRequestsSigned(true);
         spSSO.setWantAssertionsSigned(true);
-        if (bindingUri!=null && logoutPage != null){
+        if (bindingUri!=null && logoutPage != null) {
             EndpointType endpointType = new EndpointType(URI.create(bindingUri), URI.create(logoutPage));
             endpointType.setResponseLocation(URI.create(logoutResponseLocation));
             spSSO.addSingleLogoutService(endpointType);
@@ -96,8 +101,12 @@ public class SPMetadataProvider extends AbstractMetadataProvider implements
         IndexedEndpointType assertionConsumerSvc = new IndexedEndpointType(URI.create(bindingUri), URI.create(serviceUrl));
         assertionConsumerSvc.setIsDefault(true);
         spSSO.addAssertionConsumerService(assertionConsumerSvc);
-        if (serviceName != null)
+        if (serviceName != null) {
             spSSO.addAttributeConsumerService(getAttributeConsumerService());
+            if(nameIdFormat != null) {
+                spSSO.addNameIDFormat(nameIdFormat);
+            }
+        }
         EntityDescriptorType.EDTDescriptorChoiceType edtDescChoice = new EntityDescriptorType.EDTDescriptorChoiceType(spSSO);
         EntityDescriptorType.EDTChoiceType edtChoice = EntityDescriptorType.EDTChoiceType.oneValue(edtDescChoice);
 
@@ -122,7 +131,7 @@ public class SPMetadataProvider extends AbstractMetadataProvider implements
             for(String attributeVal:attributeVals){
                 RequestedAttributeType requestedAttributeType = new RequestedAttributeType(attributeVal);
                 requestedAttributeType.setIsRequired(true);
-                requestedAttributeType.setNameFormat(JBossSAMLURIConstants.ATTRIBUTE_FORMAT_URI.get());
+                requestedAttributeType.setNameFormat(JBossSAMLURIConstants.ATTRIBUTE_FORMAT_BASIC.get());
                 attributeConsumingService.addRequestedAttribute(requestedAttributeType);
             }
 
@@ -133,6 +142,25 @@ public class SPMetadataProvider extends AbstractMetadataProvider implements
             attributeConsumingService.setIsDefault(true);
 
             return attributeConsumingService;
+        } catch (ParsingException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    public String getNameIdFormat() {
+        try {
+
+            Handler authHandler = MetadataProviderUtils.getHandler(picketLinkType,
+                    "org.picketlink.identity.federation.web.handlers.saml2.SAML2AuthenticationHandler");
+            List<KeyValueType> options = authHandler.getOption();
+            for(KeyValueType option:options) {
+                if (option.getKey().equals(GeneralConstants.NAMEID_FORMAT)){
+                    return option.getValue();
+                }
+            }
+
+            return null;
+
         } catch (ParsingException e) {
             throw new RuntimeException(e);
         }
